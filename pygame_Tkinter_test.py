@@ -21,11 +21,12 @@ timelapse_button = Button(askopenfilename, 100, 200, "choose a timelapse")
 song_button = Button(askopenfilename, 500, 200, "choose a song")
 buttons = [timelapse_button, song_button]
 
-while True:
+running = True
+while running:
 	#handle events
 	for event in pygame.event.get():
 		if event.type == pygame.QUIT:
-			pygame.quit()
+			running = False
 		elif event.type == pygame.MOUSEBUTTONUP:
 			for button in buttons:
 				if button.rect.collidepoint(mouse.get_pos()):
@@ -36,3 +37,4 @@ while True:
 	for button in buttons:
 		button.draw(screen, blue)
 	pygame.display.flip()
+pygame.quit()
