@@ -1,9 +1,6 @@
 import numpy as np
 import cv2
 
-def nothing():
-	pass
-
 cap = cv2.VideoCapture('IMG_1996.MOV')
 cv2.namedWindow('image')
 cv2.createTrackbar('dy', 'image', 0, 255, lambda _: _)
