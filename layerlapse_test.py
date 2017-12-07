@@ -17,12 +17,10 @@ class VideoSongSelector:
 
 	def video_command(self):
 		self.video_file = askopenfilename()
-		print self.video_file
 		self.video_button.config(text=self.video_file)
 
 	def song_command(self):
 		self.song_file = askopenfilename()
-		print self.song_file
 		self.song_button.config(text=self.song_file)
 
 	def check_files(self):
@@ -53,15 +51,16 @@ class Preprocess:
 		self.video_file = video_file
 		self.song_file = song_file
 		
-		self.master = Tk()
-		self.open_file_button = Button(self.master, text="open", command=self.open_command)
-		self.save_file_button = Button(self.master, text="save", command=self.save_command)
-		self.continue_button = Button(self.master, text="continue", command=self.generate_video)
+		Tk().withdraw()
+		# self.master = Tk()
+		# self.open_file_button = Button(self.master, text="open", command=self.open_command)
+		# self.save_file_button = Button(self.master, text="save", command=self.save_command)
+		# self.continue_button = Button(self.master, text="continue", command=self.generate_video)
 		# self.dialate_button = Button(self.master, text="dialate", command=self.dialate_selection)
 		# self.erode_button = Button(self.master, text="erode", command=self.erode_selection)
-		self.open_file_button.pack()
-		self.save_file_button.pack()
-		self.continue_button.pack()
+		# self.open_file_button.pack()
+		# self.save_file_button.pack()
+		# self.continue_button.pack()
 		# self.dialate_button.pack()
 		# self.erode_button.pack()
 		self.open_file = None
@@ -81,7 +80,7 @@ class Preprocess:
 		cv2.setMouseCallback('image', self.mouse_callback)
 		self.update()
 
-		self.master.mainloop()
+		#self.master.mainloop()
 
 	def open_command(self):
 		self.open_file = askopenfile(filetypes=[("Text files", "*.pleasegivemealltens")])
@@ -137,28 +136,38 @@ class Preprocess:
 
 
 	def update(self):
-		#draw
-		#print len(self.regions)
-		image = self.frame.copy()
-		for region in self.regions:
-			image = cv2.addWeighted(image, 1, region, .5, 0)
-		cv2.imshow('image', image)
+		running = True
+		while running
+			#draw
+			image = self.frame.copy()
+			for region in self.regions:
+				image = cv2.addWeighted(image, 1, region, .5, 0)
+			cv2.imshow('image', image)
 
-		#handle events
-		k = cv2.waitKey(1) & 0xFF
-		if k == ord('m'):
-			self.mode = not self.mode
-		elif k == ord('q'):
-			cv2.destroyAllWindows()
-		elif k == 13:
-			#create a new region that uses a new color
-			self.regions.append(np.zeros(self.frame.shape, np.uint8))
-			self.color = self.get_random_color()
-		self.master.after(1, self.update)
+			#handle events
+			k = cv2.waitKey(1) & 0xFF
+			if k == ord('m'):
+				self.mode = not self.mode
+			elif k == ord('q') or k == 27:
+				running = False
+			elif k == ord('s'):
+				self.save_file()
+			elif k == ord('o'):
+				self.open_file()
+			elif k == ord('c'):
+				self.generate_video()
+			elif k == 13:
+				#create a new region that uses a new color
+				self.regions.append(np.zeros(self.frame.shape, np.uint8))
+				self.color = self.get_random_color()
+			#self.master.after(1, self.update)
+		self.cap.release()
+		cv2.destroyAllWindows()
 
 	def generate_video(self):
-		self.master.destroy()
+		#self.master.destroy()
 		cv2.destroyAllWindows()
+		self.cap.release()
 		GenerateVideo(self.video_file, self.song_file, self.regions, self.onsets)
 
 from playsound import playsound
@@ -176,7 +185,6 @@ class GenerateVideo:
 		self.song_file = song_file
 		self.regions = [regions[0], regions[2], regions[-1]]
 		self.onsets = self.get_onsets(song_file)#range(0,100,3)
-		print self.onsets
 		cap = cv2.VideoCapture(self.video_file)
 		cap.set(1, 75)
 
@@ -191,7 +199,8 @@ class GenerateVideo:
 			self.futures[np.amax(self.regions[i])] = cap2
 
 		self.start_time = time.time()
-
+		fourcc = cv2.VideoWriter_fourcc(*'XVID')
+		self.out = cv2.VideoWriter('output.avi',fourcc, 20.0, (640,480))
 		self.update(cap)
 
 	def get_onsets(self, song_file):
@@ -228,7 +237,8 @@ class GenerateVideo:
 				#add the region back into the image
 				self.present = cv2.add(self.present, self.present_region)
 				#self.present = cv2.add(self.present, future_frame*(region != 0))
-		cv2.imshow('image', self.present)
+		#cv2.imshow('image', self.present)
+		self.out.write(self.present)
 
 	def update(self, cap):
 		running = True
@@ -238,11 +248,6 @@ class GenerateVideo:
 			self.present = cv2.resize(self.present, (640, 480), interpolation = cv2.INTER_LINEAR)
 			#draw
 			self.draw()
-			# try:
-			# 	self.draw()
-			# except:
-			# 	print 'bad thing happened'
-			# 	running = False
 			#handle events
 			if cv2.waitKey(1) & 0xFF == 27:
 				running = False
@@ -252,13 +257,13 @@ class GenerateVideo:
 				region = choice(self.regions)
 				self.alphas[np.amax(region)] = 3
 				self.futures[np.amax(region)].set(1, int(3*cap.get(cv2.CAP_PROP_FRAME_COUNT))/4)
-
 			#update alphas
 			for key in self.alphas:
 				if self.alphas[key] > 0:
 					self.alphas[key] -= .1
 
 		cap.release()
+		out.release()
 		cv2.destroyAllWindows()
 
 if __name__ == '__main__':
