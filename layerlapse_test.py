@@ -1,5 +1,5 @@
 from Tkinter import *
-from tkFileDialog import askopenfilename, asksaveasfile
+from tkFileDialog import askopenfilename
 
 class VideoSongSelector:
 	
@@ -38,6 +38,8 @@ class VideoSongSelector:
 		self.master.destroy()
 		Preprocess(self.video_file, self.song_file)
 
+from Tkinter import *
+from tkFileDialog import askopenfile, asksaveasfile
 import cv2
 import numpy as np
 from aubio import onset, tempo, source
@@ -65,6 +67,8 @@ class Preprocess:
 		self.open_file = None
 		self.save_file = None
 
+		self.onsets = self.get_onsets(song_file)
+
 		self.color = self.get_random_color()
 		self.drawing = False
 		self.mode = True
@@ -80,12 +84,12 @@ class Preprocess:
 		self.master.mainloop()
 
 	def open_command(self):
-		self.open_file = askopenfilename()
-		self.regions = pickle.load(open(self.open_file, 'rb'))
+		self.open_file = askopenfile(filetypes=[("Text files", "*.pleasegivemealltens")])
+		self.regions = pickle.load(self.open_file)
 
 	def save_command(self):
 		self.save_file = asksaveasfile()
-		pickle.dump(self.regions, open(self.save_file, 'wb'))
+		pickle.dump(self.regions, self.save_file)
 
 	def dialate_selection(self):
 		self.frame[cv2.dilate(self.frame[self.frame == self.color], None)] = self.color
@@ -95,6 +99,24 @@ class Preprocess:
 
 	def get_random_color(self):
 		return (randrange(255), randrange(255), randrange(255))
+
+	def get_onsets(self, song_file):
+		win_s = 512
+		hop_s = win_s // 2
+		filename = song_file
+		samplerate = 0
+		s = source(filename, samplerate, hop_s)
+		samplerate = s.samplerate
+		o = onset("default", win_s, hop_s, samplerate)
+		onsets = []
+		total_frames = 0
+		while True:
+			samples, read = s()
+			if o(samples):
+				onsets.append(o.get_last())
+			total_frames += read
+			if read < hop_s: break
+		return onsets
 
 	def mouse_callback(self, event, x, y, flags, param):
 		if event == cv2.EVENT_LBUTTONDOWN:
@@ -116,6 +138,7 @@ class Preprocess:
 
 	def update(self):
 		#draw
+		#print len(self.regions)
 		image = self.frame.copy()
 		for region in self.regions:
 			image = cv2.addWeighted(image, 1, region, .5, 0)
@@ -136,67 +159,111 @@ class Preprocess:
 	def generate_video(self):
 		self.master.destroy()
 		cv2.destroyAllWindows()
-		GenerateVideo()
+		GenerateVideo(self.video_file, self.song_file, self.regions, self.onsets)
+
+from playsound import playsound
+import cv2
+import numpy as np
+import time
+from random import *
+import copy
+
 
 class GenerateVideo:
 
-	def __init__(self, regions):
-		self.present
-		self.futures
-		self.alpha = {}
-		pass
+	def __init__(self, video_file, song_file, regions, onsets):
+		self.video_file = video_file
+		self.song_file = song_file
+		self.regions = [regions[0], regions[2], regions[-1]]
+		self.onsets = self.get_onsets(song_file)#range(0,100,3)
+		print self.onsets
+		cap = cv2.VideoCapture(self.video_file)
+		cap.set(1, 75)
+
+		self.alphas = {}
+		self.futures = {}
+		for i in range(len(self.regions)):
+			self.regions[i] = cv2.resize(self.regions[i], (640, 480), interpolation = cv2.INTER_LINEAR)
+			self.alphas[np.amax(self.regions[i])] = 3
+
+			cap2 = cv2.VideoCapture(self.video_file)
+			cap2.set(1, int(3*cap.get(cv2.CAP_PROP_FRAME_COUNT))/4)
+			self.futures[np.amax(self.regions[i])] = cap2
+
+		self.start_time = time.time()
+
+		self.update(cap)
+
+	def get_onsets(self, song_file):
+		win_s = 512
+		hop_s = win_s // 2
+		filename = song_file
+		samplerate = 0
+		s = source(filename, samplerate, hop_s)
+		samplerate = s.samplerate
+		o = onset("default", win_s, hop_s, samplerate)
+		onsets = []
+		total_frames = 0
+		while True:
+			samples, read = s()
+			if o(samples):
+				onsets.append(o.get_last_s())
+			total_frames += read
+			if read < hop_s: break
+		return onsets
 
 	def draw(self):
-		#change to size of frame
-		image = np.zeros(self.present.shape, np.uint8)
-		for future in self.futures:
-			future.read()
-			for region in self.regions:
+		for region in self.regions:
+			future = self.futures[np.amax(region)]
+			if self.alphas[np.amax(region)] != 0:
+				ret, future_frame = future.read()
+				#future frame is None sometimes
+				future_frame = cv2.resize(future_frame, (640, 480), interpolation = cv2.INTER_LINEAR)
+				present_frame = self.present*(region != 0)
 				#black out the region in the present image
 				self.present = self.present*(region == 0)
-				#will store the new image for the region
-				self.present_region = self.present*(region != 0)
 				#generate the new image for the region
-				cv2.addWeighted(self.present_region, 1 - min(1, self.alpha[max(region)]), future[region], min(1, self.alpha[max(region)]), 0)
+				alpha = min(1, self.alphas[np.amax(region)])
+				self.present_region = cv2.addWeighted(present_frame, 1 - alpha, future_frame*(region != 0), alpha, 0)
 				#add the region back into the image
-				cv2.add(self.present, self.present_region)
-		imshow('image', image)	
+				self.present = cv2.add(self.present, self.present_region)
+				#self.present = cv2.add(self.present, future_frame*(region != 0))
+		cv2.imshow('image', self.present)
 
-	def update(self):
-		# Capture frame-by-frame
-		ret, self.present = self.cap.read()
-		for key in self.alphas:
-			self.alphas[key] -= .1
+	def update(self, cap):
+		running = True
+		while running:
+			# Capture frame-by-frame
+			ret, self.present = cap.read()
+			self.present = cv2.resize(self.present, (640, 480), interpolation = cv2.INTER_LINEAR)
+			#draw
+			self.draw()
+			# try:
+			# 	self.draw()
+			# except:
+			# 	print 'bad thing happened'
+			# 	running = False
+			#handle events
+			if cv2.waitKey(1) & 0xFF == 27:
+				running = False
+			#if the song plays a beat then set alpha to 2
+			if time.time() - self.start_time > self.onsets[0]:
+				self.onsets = self.onsets[1:]
+				region = choice(self.regions)
+				self.alphas[np.amax(region)] = 3
+				self.futures[np.amax(region)].set(1, int(3*cap.get(cv2.CAP_PROP_FRAME_COUNT))/4)
 
-		#if the song plays a beat then set alpha to 2
+			#update alphas
+			for key in self.alphas:
+				if self.alphas[key] > 0:
+					self.alphas[key] -= .1
 
-
-
-		# Our operations on the frame come here
-		gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-		dy = cv2.getTrackbarPos('dy', 'image')
-		threshold1 = cv2.getTrackbarPos('threshold1', 'image')
-		threshold2 = cv2.getTrackbarPos('threshold2', 'image')
-		#edges = cv2.Canny(frame, dy, threshold1, threshold2)
-		dst = cv2.cornerHarris(gray,2,3,0.04)
-
-		#result is dilated for marking the corners, not important
-		dst = cv2.dilate(dst,None)
-		# Threshold for an optimal value, it may vary depending on the image.
-		frame[dst>0.01*dst.max()]=[0,0,255]
-		#img_erosion = cv2.erode(edges, kernel, iterations=1)
-		# Display the resulting frame
-		cv2.imshow('frame', frame)
-		if cv2.waitKey(1) & 0xFF == ord('q'):
-			self.master.quit()
-			self.cap.release()
-			cv2.destroyAllWindows()
-		try:
-			self.master.after(1, self.update)
-		except:
-			pass
+		cap.release()
+		cv2.destroyAllWindows()
 
 if __name__ == '__main__':
 	#VideoSongSelector()
-	Preprocess('/Users/andrewphung/Library/Mobile Documents/com~apple~CloudDocs/2017 Fall/371r/371r Final Project/LayerLapse/IMG_2002.MOV',
-		'/Users/andrewphung/Library/Mobile Documents/com~apple~CloudDocs/2017 Fall/371r/371r Final Project/LayerLapse/Feel It Still.mp3')
+	GenerateVideo('/Users/andrewphung/Library/Mobile Documents/com~apple~CloudDocs/2017 Fall/371r/371r Final Project/LayerLapse/IMG_2002.MOV',
+		'/Users/andrewphung/Library/Mobile Documents/com~apple~CloudDocs/2017 Fall/371r/371r Final Project/LayerLapse/Feel It Still.mp3',
+		pickle.load(open('/Users/andrewphung/Library/Mobile Documents/com~apple~CloudDocs/2017 Fall/371r/371r Final Project/LayerLapse/2002.2.pleasegivemealltens')),
+		None)
